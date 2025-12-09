@@ -1,0 +1,15 @@
+{
+	"name": "soase-lsp-client",
+	"description": "Sins of a Solar Empire language client.",
+	"version": "0.0.1",
+	"engines": {
+		"vscode": "^1.106.1"
+	},
+	"scripts": {},
+	"dependencies": {
+		"vscode-languageclient": "^7.0.0"
+	},
+	"devDependencies": {
+		"@types/vscode": "^1.106.1"
+	}
+}

@@ -1,0 +1,13 @@
+{
+	"name": "soase-lsp-server",
+	"description": "Sins of a Solar Empire language server.",
+	"version": "0.0.1",
+	"engines": {
+		"node": "*"
+	},
+	"dependencies": {
+		"vscode-languageserver": "^7.0.0",
+		"vscode-languageserver-textdocument": "^1.0.1"
+	},
+	"scripts": {}
+}
