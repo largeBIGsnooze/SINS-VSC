@@ -1,0 +1,8 @@
+{
+	"scopeName": "source.soase",
+	"patterns": [
+		{
+			"include": "source.json"
+		}
+	]
+}

@@ -1,0 +1,2 @@
+### Dependencies
+- `vscode-languageserver`

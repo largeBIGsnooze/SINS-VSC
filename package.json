@@ -2,6 +2,7 @@
 	"name": "soase",
 	"displayName": "Sins of a Solar Empire",
 	"description": "Developer tools and language support for Sins of a Solar Empire.",
+	"publisher": "Scrivener",
 	"version": "0.0.1",
 	"engines": {
 		"vscode": "^1.106.1"
@@ -12,6 +13,69 @@
 	"activationEvents": [],
 	"main": "./dist/extension.js",
 	"contributes": {
+		"languages": [
+			{
+				"id": "soase",
+				"configuration": "./language-configuration.json",
+				"aliases": [
+					"Sins Data"
+				],
+				"extensions": [
+					".mod_meta_data",
+					".localized_text",
+					".uniforms",
+					".ability",
+					".action_data_source",
+					".buff",
+					".entity_manifest",
+					".exotic",
+					".flight_pattern",
+					".formation",
+					".npc_reward",
+					".player",
+					".player_color_group",
+					".player_icon",
+					".player_portrait",
+					".research_subject",
+					".unit_item",
+					".unit_skin",
+					".unit",
+					".weapon",
+					".named_colors",
+					".death_sequence",
+					".death_sequence_group",
+					".beam_effect",
+					".exhaust_trail_effect",
+					".particle_effect",
+					".shield_effect",
+					".font",
+					".gravity_well_props",
+					".button_style",
+					".drop_box_style",
+					".gui",
+					".label_style",
+					".list_box_style",
+					".reflect_box_style",
+					".scroll_bar_style",
+					".text_entry_box_style",
+					".brush",
+					".mesh_material",
+					".skybox",
+					".sound",
+					".texture_animation",
+					".gdpr_accept_data",
+					".playtime_message",
+					".welcome_message"
+				]
+			}
+		],
+		"grammars": [
+			{
+				"language": "soase",
+				"scopeName": "source.soase",
+				"path": "./syntaxes/soase.tmLanguage.json"
+			}
+		],
 		"commands": [
 			{
 				"command": "soase.helloWorld",
