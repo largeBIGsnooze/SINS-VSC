@@ -1,0 +1,7 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"title": "Unknown Type",
+	"description": "This file type does not yet have a strict schema definition. All properties are allowed.",
+	"type": "object",
+	"additionalProperties": true
+}

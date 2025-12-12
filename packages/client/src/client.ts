@@ -28,9 +28,9 @@ export class ClientManager {
 	private static readonly CLIENT_NAME: string = "Sins LSP";
 
 
-    /**
-     * Activates the language Client Manager.
-     */
+	/**
+	 * Activates the language Client Manager.
+	 */
 	public static activate(context: ExtensionContext) {
 		this.serverModule = context.asAbsolutePath(path.join("dist", "server.js"));
 		this.outputChannel = Window.createOutputChannel(ClientManager.CHANNEL_NAME);
@@ -53,9 +53,9 @@ export class ClientManager {
 	}
 
 
-    /**
-     * Deactivates all language clients.
-     */
+	/**
+	 * Deactivates all language clients.
+	 */
 	public static deactivate(): Thenable<void> {
 		const promises: Thenable<void>[] = [];
 		if (this.defaultClient) {
@@ -69,8 +69,8 @@ export class ClientManager {
 
 
 	private static didOpenTextDocument(document: TextDocument): void {
-        // Make sure only the specific language ID is handled.
-        // Ensure this matches the ID in the `package.json`.
+		// Make sure only the specific language ID is handled.
+		// Ensure this matches the ID in the `package.json`.
 		if (document.languageId !== ClientManager.LANGUAGE_SINS || (document.uri.scheme !== "file" && document.uri.scheme !== "untitled")) {
 			return;
 		}
@@ -81,7 +81,14 @@ export class ClientManager {
 		if (uri.scheme === "untitled" && !this.defaultClient) {
 			const serverOptions: ServerOptions = {
 				run: { module: this.serverModule, transport: TransportKind.ipc },
-				debug: { module: this.serverModule, transport: TransportKind.ipc }
+				debug: {
+					module: this.serverModule,
+					transport: TransportKind.ipc,
+					// Do NOT use the fixed debug port here to avoid conflicts with the main server.
+					options: {
+						execArgv: ['--nolazy']
+					}
+				}
 			};
 			const clientOptions: LanguageClientOptions = {
 				documentSelector: [
@@ -96,7 +103,6 @@ export class ClientManager {
 			return;
 		}
 
-
 		// Files outside a folder can"t be handled. This might depend on the language.
 		// Single file languages like JSON might handle files outside the workspace folders.
 		let folder = Workspace.getWorkspaceFolder(uri);
@@ -104,14 +110,22 @@ export class ClientManager {
 			return;
 		}
 
-
 		// If we have nested workspace folders we only start a server on the outer most workspace folder.
 		folder = this.getOuterMostWorkspaceFolder(folder);
 
 		if (!this.clients.has(folder.uri.toString())) {
 			const serverOptions: ServerOptions = {
 				run: { module: this.serverModule, transport: TransportKind.ipc },
-				debug: { module: this.serverModule, transport: TransportKind.ipc }
+				debug: {
+					module: this.serverModule,
+					transport: TransportKind.ipc,
+					options: {
+						// Define debug options to open a specific port for debugging the server. (See launch.json configuration)
+						// execArgv: ['--nolazy', '--inspect=6009']
+						// Use this to break on server constructor or initialization code.
+						execArgv: ['--nolazy', '--inspect-brk=6009']
+					}
+				}
 			};
 
 			const clientOptions: LanguageClientOptions = {
