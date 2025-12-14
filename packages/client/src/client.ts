@@ -19,7 +19,6 @@ export class ClientManager {
 	private static clients = new Map<string, LanguageClient>();
 	private static defaultClient: LanguageClient | undefined;
 
-
 	private static serverModule: string;
 
 	private static sortedWorkspaceFolders: string[] | undefined;
@@ -27,7 +26,6 @@ export class ClientManager {
 	private static outputChannel: OutputChannel;
 	private static readonly CHANNEL_NAME: string = "Sins of a Solar Empire LSP";
 
-	// private static readonly LANGUAGE_TEXT: string = "plaintext";
 	private static readonly LANGUAGE_SINS: string = "soase";
 
 	private static readonly CLIENT_ID: string = "soase-lsp";
@@ -111,7 +109,7 @@ export class ClientManager {
 
 		// Files outside a folder can"t be handled. This might depend on the language.
 		// Single file languages like JSON might handle files outside the workspace folders.
-		let folder = Workspace.getWorkspaceFolder(uri);
+		let folder: WorkspaceFolder | undefined = Workspace.getWorkspaceFolder(uri);
 		if (!folder) {
 			return;
 		}
@@ -153,7 +151,7 @@ export class ClientManager {
 	private static getOuterMostWorkspaceFolder(folder: WorkspaceFolder): WorkspaceFolder {
 		const sorted: string[] = this.sortWorkspaceFolders();
 		for (const element of sorted) {
-			let uri = folder.uri.toString();
+			let uri: string = folder.uri.toString();
 			if (uri.charAt(uri.length - 1) !== "/") {
 				uri = uri + "/";
 			}
@@ -168,7 +166,7 @@ export class ClientManager {
 	private static sortWorkspaceFolders(): string[] {
 		if (this.sortedWorkspaceFolders === void 0) {
 			this.sortedWorkspaceFolders = Workspace.workspaceFolders ? Workspace.workspaceFolders.map(folder => {
-				let result = folder.uri.toString();
+				let result: string = folder.uri.toString();
 				if (result.charAt(result.length - 1) !== "/") {
 					result = result + "/";
 				}

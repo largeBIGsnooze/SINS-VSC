@@ -1,6 +1,9 @@
 import * as fs from "fs";
 import * as path from "path";
 
+/**
+ * Manages workspace-related operations such as file searching.
+ */
 export class WorkspaceManager {
 
 	/**
@@ -42,7 +45,6 @@ export class WorkspaceManager {
 				const fullPath: string = path.join(directory, entry.name);
 
 				if (entry.isDirectory()) {
-
 					if (!WorkspaceManager.ignoreFolders.has(entry.name)) {
 						const result: string[] = await this.findFiles(fullPath, fileExtension, depth + 1);
 						results = results.concat(result);

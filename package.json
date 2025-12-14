@@ -65,7 +65,8 @@
 					".texture_animation",
 					".gdpr_accept_data",
 					".playtime_message",
-					".welcome_message"
+					".welcome_message",
+					".start_mode"
 				]
 			}
 		],

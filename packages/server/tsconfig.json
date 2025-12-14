@@ -8,9 +8,19 @@
 		"outDir": "out",
 		"rootDir": "src",
 		"sourceMap": true,
-		"strict": true
+		"strict": true,
+		"paths": {
+			"@soase/shared": [
+				"../shared/src/index.ts"
+			]
+		}
 	},
 	"include": [
 		"src"
+	],
+	"references": [
+		{
+			"path": "../shared"
+		}
 	]
 }

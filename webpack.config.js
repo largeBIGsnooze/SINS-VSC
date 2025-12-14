@@ -1,11 +1,9 @@
 //@ts-check
-
 "use strict";
 
 const path = require("path");
 const CopyPlugin = require("copy-webpack-plugin");
 
-//@ts-check
 /** @typedef {import("webpack").Configuration} WebpackConfig **/
 
 
@@ -68,7 +66,10 @@ const serverConfig = {
 		// However, it usually doesn't import it either.
 	},
 	resolve: {
-		extensions: [".ts", ".js"]
+		extensions: [".ts", ".js"],
+		alias: {
+			'@soase/shared': path.resolve(__dirname, 'packages/shared/src/index.ts')
+		}
 	},
 	module: {
 		rules: [

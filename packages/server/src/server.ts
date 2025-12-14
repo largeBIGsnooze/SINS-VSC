@@ -1,3 +1,5 @@
+import * as fs from "fs";
+import * as path from "path";
 import {
 	createConnection,
 	TextDocuments,
@@ -7,7 +9,8 @@ import {
 	InitializeResult,
 	Connection,
 	Hover,
-	Diagnostic
+	Diagnostic,
+	DefinitionParams
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
@@ -15,16 +18,17 @@ import {
 	getLanguageService,
 	JSONDocument,
 	LanguageService,
-	LanguageSettings
+	LanguageSettings,
+	Location,
+	Range
 } from "vscode-json-languageservice";
-import * as path from "path";
-import * as fs from "fs";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { SchemaPatcher } from "./json-schema";
 import { LocalizationManager } from "./localization";
 import { SchemaManager } from "./schema";
 import { TextureManager } from "./texture";
 import { JsonAST } from "./json-ast";
+import { IndexManager } from "./data-manager";
 
 /**
  * Encapsulates the Sins language server logic.
@@ -42,11 +46,17 @@ class SinsLanguageServer {
 	/** The JSON language service instance. */
 	private jsonLanguageService: LanguageService;
 
+	/** The schema patcher to use. */
 	private schemaPatcher: SchemaPatcher;
 
+	/** The localization manager to use. */
 	private localizationManager: LocalizationManager;
 
+	/** The texture manager to use. */
 	private textureManager: TextureManager;
+
+	/** The index manager to use. */
+	private indexManager: IndexManager;
 
 
 	constructor() {
@@ -59,6 +69,7 @@ class SinsLanguageServer {
 		this.schemaPatcher = new SchemaPatcher();
 		this.localizationManager = new LocalizationManager();
 		this.textureManager = new TextureManager();
+		this.indexManager = new IndexManager();
 
 		// Initialize the JSON language service.
 		this.jsonLanguageService = getLanguageService({
@@ -86,6 +97,7 @@ class SinsLanguageServer {
 
 		// Bind the language feature listeners.
 		this.connection.onHover(this.onHover.bind(this));
+		this.connection.onDefinition(this.onDefinition.bind(this));
 
 		// Bind the document event listeners.
 		this.documents.onDidOpen(this.onDidOpen.bind(this));
@@ -103,6 +115,8 @@ class SinsLanguageServer {
 	/**
 	 * Called when the client starts the server.
 	 * This is where server capabilities are decalred.
+	 * @param params The initialization parameters from the client.
+	 * @returns The server's capabilities.
 	 */
 	private onInitialize(params: InitializeParams): InitializeResult {
 		// TODO: rootUri @deprecated — in favour of workspaceFolders
@@ -115,19 +129,26 @@ class SinsLanguageServer {
 
 		this.jsonLanguageService.configure(settings);
 
-		return {
+		const initializeResult: InitializeResult = {
 			capabilities: {
+
+				// Tell the client how to sync text documents (Full vs Incremental).
+				textDocumentSync: TextDocumentSyncKind.Incremental,
+
 				// Tell the client that this server supports code completion.
 				completionProvider: {
 					resolveProvider: true
 				},
-				// Tell the client how to sync text documents (Full vs Incremental).
-				textDocumentSync: TextDocumentSyncKind.Incremental,
 
 				// Tell the client that this server supports hover.
 				hoverProvider: true,
+
+				// Tell the client that this server supports go-to-definition.
+				definitionProvider: true
 			}
 		};
+
+		return initializeResult;
 	}
 
 
@@ -137,7 +158,7 @@ class SinsLanguageServer {
 	private onInitialized(): void {
 		this.connection.console.log("Server initialized.");
 
-		// Scan workspace for localized text files
+		// Initialize workspace data managers.
 		if (this.workspaceFolder) {
 			const fsPath: string = fileURLToPath(this.workspaceFolder);
 			this.localizationManager.loadFromWorkspace(fsPath).then(() => {
@@ -146,12 +167,15 @@ class SinsLanguageServer {
 			this.textureManager.loadFromWorkspace(fsPath).then(() => {
 				this.connection.console.log("Texture data loaded.");
 			});
+
+			this.indexManager.rebuildIndex(fsPath);
 		}
 	}
 
 
 	/**
 	 * Called when a document is opened.
+	 * @param event The event containing the opened document.
 	 */
 	private onDidOpen(event: { document: TextDocument }): void {
 		this.connection.console.log(`[Server(${process.pid}) ${this.workspaceFolder}] Document opened: ${event.document.uri}`);
@@ -161,6 +185,7 @@ class SinsLanguageServer {
 	/**
 	 * Called when a document content changes.
 	 * This is usually where validation logic triggers.
+	 * @param change The event containing the changed document.
 	 */
 	private onDidChangeContent(change: { document: TextDocument }): void {
 		this.validateTextDocument(change.document);
@@ -169,6 +194,7 @@ class SinsLanguageServer {
 
 	/**
 	 * Called when a document is closed.
+	 * @param event The event containing the closed document.
 	 */
 	private onDidClose(event: { document: TextDocument }): void {
 		// Clear diagnostics for closed files if necessary with empty array.
@@ -179,6 +205,7 @@ class SinsLanguageServer {
 
 	/**
 	 * Core logic for validating a document.
+	 * @param textDocument The text document to validate.
 	 */
 	private async validateTextDocument(textDocument: TextDocument): Promise<void> {
 		const text: string = textDocument.getText();
@@ -199,6 +226,8 @@ class SinsLanguageServer {
 
 	/**
 	 * Called when the user hovers over text.
+	 * @param params The parameters for the hover request.
+	 * @returns A promise that resolves to a Hover object or null.
 	 */
 	private async onHover(params: { textDocument: any, position: any }): Promise<any> {
 		const document: TextDocument | undefined = this.documents.get(params.textDocument.uri);
@@ -229,6 +258,41 @@ class SinsLanguageServer {
 
 		// Fallback to standard JSON schema hover.
 		return this.jsonLanguageService.doHover(document, params.position, jsonDocument);
+	}
+
+
+	/**
+	 * Called when the user requests the definition of a symbol.
+	 * @param params The parameters for the definition request.
+	 * @returns A promise that resolves to an array of `Location` types or null.
+	 */
+	private async onDefinition(params: DefinitionParams): Promise<Location[] | null> {
+		const document: TextDocument | undefined = this.documents.get(params.textDocument.uri);
+		if (!document) {
+			return null;
+		}
+
+		const jsonDocument: JSONDocument = this.jsonLanguageService.parseJSONDocument(document);
+		const offset: number = document.offsetAt(params.position);
+		const node: ASTNode | undefined = jsonDocument.getNodeFromOffset(offset);
+
+		if (node && node.type === 'string' && JsonAST.isNodeValue(node)) {
+			const identifier: string = node.value;
+			const paths: string[] | undefined = this.indexManager.getPaths(identifier);
+
+			if (paths && paths.length > 0) {
+				// Map all found paths to Locations.
+				return paths.map(filePath => {
+					const location: Location = Location.create(
+						pathToFileURL(filePath).toString(),
+						Range.create(0, 0, 0, 0) // Point to start of file
+					);
+					return location;
+				});
+			}
+		}
+
+		return null;
 	}
 
 
