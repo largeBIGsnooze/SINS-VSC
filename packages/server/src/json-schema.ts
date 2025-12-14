@@ -194,7 +194,7 @@ class SchemaPatch {
 
 			}
 		} catch (error) {
-			// TODO: Print this to extension console. Swallowing for now, which is safer than crashing the server.
+			console.error("Failed to patch the mission uniform schema type.", error);
 		}
 	}
 

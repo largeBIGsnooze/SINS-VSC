@@ -1,6 +1,12 @@
 import * as path from "path";
 import {
-	workspace as Workspace, window as Window, ExtensionContext, TextDocument, OutputChannel, WorkspaceFolder, Uri
+	workspace as Workspace,
+	window as Window,
+	ExtensionContext,
+	TextDocument,
+	OutputChannel,
+	WorkspaceFolder,
+	Uri
 } from "vscode";
 
 import {
@@ -43,7 +49,7 @@ export class ClientManager {
 		Workspace.onDidChangeWorkspaceFolders((event) => {
 			this.sortedWorkspaceFolders = undefined; // Reset cache
 			for (const folder of event.removed) {
-				const client = this.clients.get(folder.uri.toString());
+				const client: LanguageClient | undefined = this.clients.get(folder.uri.toString());
 				if (client) {
 					this.clients.delete(folder.uri.toString());
 					client.stop();
@@ -75,7 +81,7 @@ export class ClientManager {
 			return;
 		}
 
-		const uri = document.uri;
+		const uri: Uri = document.uri;
 
 		// Untitled files go to the default client.
 		if (uri.scheme === "untitled" && !this.defaultClient) {
@@ -121,9 +127,9 @@ export class ClientManager {
 					transport: TransportKind.ipc,
 					options: {
 						// Define debug options to open a specific port for debugging the server. (See launch.json configuration)
-						// execArgv: ['--nolazy', '--inspect=6009']
+						execArgv: ['--nolazy', '--inspect=6009']
 						// Use this to break on server constructor or initialization code.
-						execArgv: ['--nolazy', '--inspect-brk=6009']
+						// execArgv: ['--nolazy', '--inspect-brk=6009']
 					}
 				}
 			};
@@ -137,7 +143,7 @@ export class ClientManager {
 				outputChannel: this.outputChannel
 			};
 
-			const client = new LanguageClient(ClientManager.CLIENT_ID, ClientManager.CLIENT_NAME, serverOptions, clientOptions);
+			const client: LanguageClient = new LanguageClient(ClientManager.CLIENT_ID, ClientManager.CLIENT_NAME, serverOptions, clientOptions);
 			client.start();
 			this.clients.set(folder.uri.toString(), client);
 		}
@@ -145,7 +151,7 @@ export class ClientManager {
 
 
 	private static getOuterMostWorkspaceFolder(folder: WorkspaceFolder): WorkspaceFolder {
-		const sorted = this.sortWorkspaceFolders();
+		const sorted: string[] = this.sortWorkspaceFolders();
 		for (const element of sorted) {
 			let uri = folder.uri.toString();
 			if (uri.charAt(uri.length - 1) !== "/") {

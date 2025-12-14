@@ -5,11 +5,15 @@ import {
 	InitializeParams,
 	TextDocumentSyncKind,
 	InitializeResult,
-	Connection
+	Connection,
+	Hover,
+	Diagnostic
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
+	ASTNode,
 	getLanguageService,
+	JSONDocument,
 	LanguageService,
 	LanguageSettings,
 	SchemaConfiguration
@@ -18,6 +22,7 @@ import * as path from "path";
 import * as fs from "fs";
 import { fileURLToPath, pathToFileURL } from "url";
 import { SchemaPatcher } from "./json-schema";
+import { LocalizationManager } from "./localization";
 
 /**
  * Encapsulates the Sins language server logic.
@@ -37,6 +42,8 @@ class SinsLanguageServer {
 
 	private schemaPatcher: SchemaPatcher;
 
+	private localizationManager: LocalizationManager;
+
 
 	constructor() {
 		// Create the LSP connection.
@@ -46,16 +53,17 @@ class SinsLanguageServer {
 		this.documents = new TextDocuments(TextDocument);
 
 		this.schemaPatcher = new SchemaPatcher();
+		this.localizationManager = new LocalizationManager();
 
 		// Initialize the JSON language service.
 		this.jsonLanguageService = getLanguageService({
 			schemaRequestService: async (uri) => {
 				if (uri.startsWith("file")) {
-					const fsPath = fileURLToPath(uri);
-					const fileName = path.basename(fsPath);
+					const fsPath: string = fileURLToPath(uri);
+					const fileName: string = path.basename(fsPath);
 					try {
-						const content = await fs.promises.readFile(fsPath, "utf-8");
-						const schema = JSON.parse(content);
+						const content: string = await fs.promises.readFile(fsPath, "utf-8");
+						const schema: any = JSON.parse(content);
 						this.schemaPatcher.apply(fileName, schema);
 						return JSON.stringify(schema);
 					}
@@ -70,6 +78,9 @@ class SinsLanguageServer {
 		// Bind the connection event listeners.
 		this.connection.onInitialize(this.onInitialize.bind(this));
 		this.connection.onInitialized(this.onInitialized.bind(this));
+
+		// Bind the language feature listeners.
+		this.connection.onHover(this.onHover.bind(this));
 
 		// Bind the document event listeners.
 		this.documents.onDidOpen(this.onDidOpen.bind(this));
@@ -102,7 +113,10 @@ class SinsLanguageServer {
 					resolveProvider: true
 				},
 				// Tell the client how to sync text documents (Full vs Incremental).
-				textDocumentSync: TextDocumentSyncKind.Incremental
+				textDocumentSync: TextDocumentSyncKind.Incremental,
+
+				// Tell the client that this server supports hover.
+				hoverProvider: true,
 			}
 		};
 	}
@@ -607,6 +621,14 @@ class SinsLanguageServer {
 	 */
 	private onInitialized(): void {
 		this.connection.console.log("Server initialized.");
+
+		// Scan workspace for localized text files
+		if (this.workspaceFolder) {
+			const fsPath: string = fileURLToPath(this.workspaceFolder);
+			this.localizationManager.loadFromWorkspace(fsPath).then(() => {
+				this.connection.console.log("Localization data loaded.");
+			});
+		}
 	}
 
 
@@ -641,19 +663,57 @@ class SinsLanguageServer {
 	 * Core logic for validating a document.
 	 */
 	private async validateTextDocument(textDocument: TextDocument): Promise<void> {
-		const text = textDocument.getText();
+		const text: string = textDocument.getText();
 
 		// TODO: Just logging the length for now.
 		this.connection.console.log(`Validating ${textDocument.uri} (${text.length} characters in length.)`);
 
 		// Parse the document as JSON.
-		const jsonDocument = this.jsonLanguageService.parseJSONDocument(textDocument);
+		const jsonDocument: JSONDocument = this.jsonLanguageService.parseJSONDocument(textDocument);
 
 		// Validate the document against the configured schemas.
-		const diagnostics = await this.jsonLanguageService.doValidation(textDocument, jsonDocument);
+		const diagnostics: Diagnostic[] = await this.jsonLanguageService.doValidation(textDocument, jsonDocument);
 
 		// Send the diagnostics to the client.
 		this.connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
+	}
+
+
+	/**
+	 * Called when the user hovers over text.
+	 */
+	private async onHover(params: { textDocument: any, position: any }): Promise<any> {
+		const document: TextDocument | undefined = this.documents.get(params.textDocument.uri);
+		if (!document) {
+			return null;
+		}
+
+		const jsonDocument: JSONDocument = this.jsonLanguageService.parseJSONDocument(document);
+		const offset: number = document.offsetAt(params.position);
+		const node: ASTNode | undefined = jsonDocument.getNodeFromOffset(offset);
+
+		// Check a string is being hovered.
+		if (node && node.type === "string" && node.value) {
+			// Ensure we are hovering the value, not the property key.
+			// In AST: Property -> [KeyNode, ValueNode]
+			// If the parent is a property, we only want to trigger if we are the ValueNode.
+			if (node.parent?.type === "property" && node.parent.children?.[1] === node) {
+				const hover: Hover | null = this.localizationManager.getHover(node.value);
+				if (hover) {
+					return hover;
+				}
+			}
+			// Also handle strings inside arrays ("special_operation_names").
+			else if (node.parent?.type === "array") {
+				const hover: Hover | null = this.localizationManager.getHover(node.value);
+				if (hover) {
+					return hover;
+				}
+			}
+		}
+
+		// Fallback to standard JSON schema hover.
+		return this.jsonLanguageService.doHover(document, params.position, jsonDocument);
 	}
 
 
