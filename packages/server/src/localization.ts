@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { Hover, MarkupKind } from "vscode-languageserver/node";
+import { WorkspaceManager } from "./workspace";
 
 /**
  * Provides localization management for loading and retrieving localized text.
@@ -21,11 +22,6 @@ export class LocalizationManager {
 	 */
 	private knownKeys: Set<string> = new Set();
 
-	/**
-	 * The maximum directory depth for the file searcher.
-	 */
-	private readonly searchMaxDepth = 5;
-
 
 	/**
 	 * Scans the workspace for `.localized_text` files and loads them.
@@ -34,7 +30,7 @@ export class LocalizationManager {
 		this.cache.clear();
 		this.knownKeys.clear();
 
-		const files: string[] = await this.findLocalizedTextFiles(rootPath);
+		const files: string[] = await WorkspaceManager.findFiles(rootPath, ".localized_text");
 
 		for (const file of files) {
 			try {
@@ -62,45 +58,6 @@ export class LocalizationManager {
 				console.error(`Failed to load localization file: ${file}`, error);
 			}
 		}
-	}
-
-
-	/**
-	 * Recursive finder for `.localized_text` files.
-	 *
-	 * TODO: Implement `Promise.all` to scan subdirectories in parallel.
-	 */
-	private async findLocalizedTextFiles(directory: string, depth: number = 0): Promise<string[]> {
-		if (depth > this.searchMaxDepth) {
-			console.log(`Search depth maximum hit. (depth:${depth}): ${directory}`);
-			return [];
-		}
-
-		let results: string[] = [];
-		try {
-			const list = await fs.promises.readdir(directory, { withFileTypes: true });
-			for (const entry of list) {
-				const fullPath: string = path.join(directory, entry.name);
-
-				if (entry.isDirectory()) {
-					// Skip `node_modules` and `.git` to save time, though `node_modules` is unlikely.
-					if (entry.name !== "node_modules" && entry.name !== ".git") {
-						const result: string[] = await this.findLocalizedTextFiles(fullPath, depth + 1);
-						results = results.concat(result);
-					}
-				}
-				else if (entry.name.endsWith(".localized_text")) {
-					results.push(fullPath);
-				}
-			}
-
-		}
-		catch (error) {
-			// TODO: Ignore "Access Denied" errors (like System Volume Information or locked folders).
-			console.error(`Failed search (depth:${depth}): ${directory}`, error);
-		}
-
-		return results;
 	}
 
 

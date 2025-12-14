@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { pathToFileURL } from "url";
 import { Hover, MarkupKind } from "vscode-languageserver/node";
+import { WorkspaceManager } from "./workspace";
 
 /**
  * Manages texture files within the workspace.
@@ -13,16 +14,11 @@ export class TextureManager {
 	 */
 	private cache: Map<string, string> = new Map();
 
-	/**
-	 * The maximum directory depth for the file searcher.
-	 */
-	private readonly searchMaxDepth = 5;
-
 
 	public async loadFromWorkspace(rootPath: string): Promise<void> {
 		this.cache.clear();
 
-		const files: string[] = await this.findTextureFiles(rootPath);
+		const files: string[] = await WorkspaceManager.findFiles(rootPath, ".png");
 		for (const file of files) {
 			try {
 				const fileName: string = path.basename(file);
@@ -35,40 +31,6 @@ export class TextureManager {
 		}
 
 		console.log(`Loaded ${this.cache.size} texture keys for workspace '${rootPath}'`);
-	}
-
-
-	private async findTextureFiles(directory: string, depth: number = 0): Promise<string[]> {
-		if (depth > this.searchMaxDepth) {
-			console.log(`Search depth maximum hit. (depth:${depth}): ${directory}`);
-			return [];
-		}
-
-		let results: string[] = [];
-		try {
-			const list = await fs.promises.readdir(directory, { withFileTypes: true });
-			for (const entry of list) {
-				const fullPath: string = path.join(directory, entry.name);
-
-				if (entry.isDirectory()) {
-					// Skip `node_modules` and `.git` to save time, though `node_modules` is unlikely.
-					if (entry.name !== "node_modules" && entry.name !== ".git") {
-						const result: string[] = await this.findTextureFiles(fullPath, depth + 1);
-						results = results.concat(result);
-					}
-				}
-				else if (entry.name.endsWith(".png")) {
-					results.push(fullPath);
-				}
-			}
-
-		}
-		catch (error) {
-			// TODO: Ignore "Access Denied" errors (like System Volume Information or locked folders).
-			console.error(`Failed search (depth:${depth}): ${directory}`, error);
-		}
-
-		return results;
 	}
 
 

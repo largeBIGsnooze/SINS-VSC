@@ -1,9 +1,6 @@
-import {
-	LanguageSettings,
-	SchemaConfiguration
-} from "vscode-json-languageservice";
 import * as path from "path";
 import { pathToFileURL } from "url";
+import { SchemaConfiguration } from "vscode-json-languageservice";
 
 /**
  * Manages JSON schema configurations for the language service.
