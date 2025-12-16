@@ -61,7 +61,7 @@ export class TextureManager {
 			const markdown: string[] = [];
 			markdown.push("**Texture Preview**");
 			markdown.push(`[image](${fileUrl})`);
-			markdown.push(`![${key}](file:///${fullPath})`);
+			markdown.push(`![${key}](file:///${fullPath.replace(" ", "%20")})`);
 
 			const hover: Hover = {
 				contents: {
