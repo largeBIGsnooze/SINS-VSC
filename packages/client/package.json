@@ -7,6 +7,7 @@
 	},
 	"scripts": {},
 	"dependencies": {
+		"@soase/shared": "file:../shared",
 		"vscode-languageclient": "^7.0.0"
 	},
 	"devDependencies": {

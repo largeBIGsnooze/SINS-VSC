@@ -64,26 +64,28 @@ export class LocalizationManager {
 	/**
 	 * Checks if a string is a known localization key and returns a `Hover` object if so.
 	 */
-	public getHover(key: string): Hover | null {
+	public getHover(key: string, lang: string = "en"): Hover | null {
 		if (!this.knownKeys.has(key)) {
 			return null;
 		}
 
 		const markdown: string[] = [];
-		markdown.push(`**Localized Text**`);
-		markdown.push(`| Language | Value |`);
-		markdown.push(`| :--- | :--- |`);
+		markdown.push(`**Localized Text** - *${lang}.localized_text*`);
+		markdown.push(`\n`);
+		markdown.push(`------------`);
+		markdown.push(`\n`);
+		markdown.push(`${this.cache.get(lang)?.get(key)}`);
 
 		// Iterate over all loaded languages to show values or missing status.
-		for (const [languageCode, languageMap] of this.cache.entries()) {
-			const value: string | undefined = languageMap.get(key);
-			if (value) {
-				markdown.push(`| **${languageCode}** | ${value} |`);
-			}
-			else {
-				markdown.push(`| ${languageCode} | ❗ *(missing)* |`);
-			}
-		}
+		// for (const [languageCode, languageMap] of this.cache.entries()) {
+		// 	const value: string | undefined = languageMap.get(key);
+		// 	if (value) {
+		// 		markdown.push(`| **${languageCode}** | ${value} |`);
+		// 	}
+		// 	else {
+		// 		markdown.push(`| ${languageCode} | ❗ *(missing)* |`);
+		// 	}
+		// }
 
 		const hover: Hover = {
 			contents: {
