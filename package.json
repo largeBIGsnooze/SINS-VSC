@@ -13,10 +13,40 @@
 	"activationEvents": ["*"],
 	"main": "./dist/extension.js",
 	"contributes": {
+		"configuration": {
+			"properties": {
+				"soase2-plugin.language": {
+					"type": "string",
+					"scope": "application",
+					"default": "en",
+					"enum": [
+						"en",
+						"de",
+						"es",
+						"fr",
+						"hu",
+						"it",
+						"ja",
+						"ko",
+						"pl",
+						"pt_br",
+						"ru",
+						"th",
+						"tr",
+						"zh_cn"
+					],
+					"description": "Language code for localized_text"
+				}
+			}
+		},
 		"languages": [
 			{
 				"id": "soase",
 				"configuration": "./syntaxes/language-configuration.json",
+				"icon": {
+					"dark": "./packages/shared/images/sins2_icon_transparent.png",
+					"light": "./packages/shared/images/sins2_icon_transparent.png"
+				},
 				"aliases": [
 					"Sins Data"
 				],

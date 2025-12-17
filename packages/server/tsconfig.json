@@ -6,7 +6,6 @@
 			"ES2024"
 		],
 		"outDir": "out",
-		"rootDir": "src",
 		"sourceMap": true,
 		"strict": true,
 		"paths": {

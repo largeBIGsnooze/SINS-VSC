@@ -6,13 +6,15 @@ import {
 	TextDocument,
 	OutputChannel,
 	WorkspaceFolder,
-	Uri
+	Uri,
 } from "vscode";
 
 import {
 	LanguageClient, LanguageClientOptions, TransportKind, ServerOptions
 } from "vscode-languageclient/node";
 
+import { Configuration } from "./configuration";
+import * as shared from "@soase/shared";
 
 export class ClientManager {
 
@@ -142,7 +144,10 @@ export class ClientManager {
 			};
 
 			const client: LanguageClient = new LanguageClient(ClientManager.CLIENT_ID, ClientManager.CLIENT_NAME, serverOptions, clientOptions);
-			client.start();
+			client.start().then(() => {
+				client?.onRequest(shared.PROPERTIES.language, () => Configuration.getLanguage());
+			});
+
 			this.clients.set(folder.uri.toString(), client);
 		}
 	}

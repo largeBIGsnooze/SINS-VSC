@@ -25,7 +25,10 @@ const clientConfig = {
 	},
 	resolve: {
 		// support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
-		extensions: [".ts", ".js"]
+		extensions: [".ts", ".js"],
+		alias: {
+			'@soase/shared': path.resolve(__dirname, 'packages/shared/src/index.ts')
+		}
 	},
 	module: {
 		rules: [
