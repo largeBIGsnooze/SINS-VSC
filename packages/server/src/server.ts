@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import * as shared from "@soase/shared";
 import {
 	createConnection,
 	TextDocuments,
@@ -17,12 +18,12 @@ import {
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
 	ASTNode,
+	CompletionItemKind,
 	getLanguageService,
 	JSONDocument,
 	LanguageService,
 	LanguageSettings,
 	Location,
-	MatchingSchema,
 	Range
 } from "vscode-json-languageservice";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -32,6 +33,8 @@ import { PointerType, SchemaManager } from "./schema";
 import { TextureManager } from "./texture";
 import { JsonAST } from "./json-ast";
 import { IndexManager } from "./data-manager";
+import { CacheManager, CompletionManager } from "./completion";
+
 
 /**
  * Encapsulates the Sins language server logic.
@@ -58,8 +61,15 @@ class SinsLanguageServer {
 	/** The texture manager to use. */
 	private textureManager: TextureManager;
 
+	private completionManager: CompletionManager;
+
+	private cacheManager: CacheManager;
+
 	/** The index manager to use. */
 	private indexManager: IndexManager;
+
+	private currentLanguageCode: string = "en";
+	private isInitialized: boolean;
 
 
 	constructor() {
@@ -69,9 +79,13 @@ class SinsLanguageServer {
 		// Create a manager for open text documents.
 		this.documents = new TextDocuments(TextDocument);
 
+		this.isInitialized = false;
+
 		this.schemaPatcher = new SchemaPatcher();
 		this.localizationManager = new LocalizationManager();
 		this.textureManager = new TextureManager();
+		this.cacheManager = new CacheManager();
+		this.completionManager = new CompletionManager(this.cacheManager);
 		this.indexManager = new IndexManager();
 
 		// Initialize the JSON language service.
@@ -161,20 +175,33 @@ class SinsLanguageServer {
 	/**
 	 * Called after the handshake is complete.
 	 */
-	private onInitialized(): void {
+	private async onInitialized(): Promise<void> {
 		this.connection.console.log("Server initialized.");
 
 		// Initialize workspace data managers.
 		if (this.workspaceFolder) {
 			const fsPath: string = fileURLToPath(this.workspaceFolder);
-			this.localizationManager.loadFromWorkspace(fsPath).then(() => {
-				this.connection.console.log("Localization data loaded.");
-			});
-			this.textureManager.loadFromWorkspace(fsPath).then(() => {
-				this.connection.console.log("Texture data loaded.");
-			});
-
+			await Promise.all([
+				this.localizationManager.loadFromWorkspace(fsPath).then(() =>
+					this.connection.console.log("Localization data loaded")
+				),
+				this.textureManager.loadFromWorkspace(fsPath).then(() =>
+					this.connection.console.log("Texture data loaded")
+				),
+				this.completionManager.loadFromWorkspace(fsPath).then(() =>
+					this.connection.console.log("Completion data loaded")
+				)
+			]);
 			this.indexManager.rebuildIndex(fsPath);
+			for (const doc of this.documents.all()) {
+				await this.validateTextDocument(doc);
+			}
+			/*
+				since onDidOpen/onDidChangeContent events execute before the server
+				actually initializes (ie: files already opened), we'll need to keep track of it via a variable
+				to ensure full server initialization before validating any document.
+			*/
+			this.isInitialized = true;
 		}
 	}
 
@@ -193,8 +220,15 @@ class SinsLanguageServer {
 	 * This is usually where validation logic triggers.
 	 * @param change The event containing the changed document.
 	 */
-	private onDidChangeContent(change: { document: TextDocument }): void {
-		this.validateTextDocument(change.document);
+	private async onDidChangeContent(change: { document: TextDocument }): Promise<void> {
+
+		if (!this.isInitialized) {
+			return;
+		}
+
+		this.connection.sendRequest(shared.PROPERTIES.language).then((code: any) => this.currentLanguageCode = code);
+		await this.validateTextDocument(change.document);
+
 	}
 
 
@@ -208,7 +242,74 @@ class SinsLanguageServer {
 		this.connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
 	}
 
+	private async validatePointers(document: TextDocument, jsonDocument: JSONDocument): Promise<Diagnostic[]> {
+		const diagnostics: Diagnostic[] = [];
+		const cache = this.cacheManager.getCache();
 
+		function walk (node: ASTNode | undefined, pointer: PointerType) {
+			if (!node || node.value === null) {
+				return;
+			}
+
+			if (node.type === "array") {
+				node.items.forEach(item => walk(item, pointer));
+				return;
+			}
+
+			const range: Range = {
+				start: document.positionAt(node.offset),
+				end: document.positionAt(node.offset + node.length)
+			};
+
+			const value = node.value as string;
+
+			switch (pointer) {
+				case PointerType.localized_text:
+					// TODO: create a function for diagnostic logging
+					if (!cache.localized_text.has(value)) {
+						diagnostics.push({ severity: 1, range, message: `- no localisation key found for: "${value}".`, source: shared.SOURCE });
+					}
+					break;
+				case PointerType.brushes:
+					if (!cache.brushes.has(value)) {
+						diagnostics.push({ severity: 1, range, message: `- no texture found for: "${value}".`, source: shared.SOURCE });
+					}
+					break;
+				case PointerType.unit_skins:
+					if (!cache.unit_skins.has(value)) {
+						diagnostics.push({ severity: 1, range, message: `- no unit_skin found for: "${value}".`, source: shared.SOURCE });
+					}
+					break;
+			}
+		};
+
+		const schemas = await this.jsonLanguageService.getMatchingSchemas(document, jsonDocument);
+		schemas.forEach(schemaMatch => {
+			const props = schemaMatch.schema.properties;
+			if (!props) {
+				return;
+			}
+
+			Object.keys(props).forEach(key => {
+				const schemaProp: any = props[key];
+
+				if (!("pointer" in schemaProp)) {
+					return;
+				}
+
+				const nodes = JsonAST.findNodes(jsonDocument.root, key);
+				nodes.forEach(node =>  {
+					// prevent validation on properties with the same names that aren't in the same context
+					if (!JsonAST.isWithinSchemaNode(node.offset, schemaMatch.node)) {
+						return;
+					}
+					walk(node.valueNode, schemaProp.pointer);
+				});
+			});
+		});
+
+		return diagnostics;
+	}
 	/**
 	 * Core logic for validating a document.
 	 * @param textDocument The text document to validate.
@@ -223,10 +324,54 @@ class SinsLanguageServer {
 		const jsonDocument: JSONDocument = this.jsonLanguageService.parseJSONDocument(textDocument);
 
 		// Validate the document against the configured schemas.
-		const diagnostics: Diagnostic[] = await this.jsonLanguageService.doValidation(textDocument, jsonDocument);
+		const diagnostics: Diagnostic[] = [
+			...(await this.jsonLanguageService.doValidation(textDocument, jsonDocument)),
+			...(await this.validatePointers(textDocument, jsonDocument))
+		];
 
 		// Send the diagnostics to the client.
 		this.connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
+	}
+
+	public async getContext(jsonLanguageService: LanguageService, document: TextDocument, jsonDocument: JSONDocument, node: ASTNode | undefined): Promise<PointerType> {
+		if (!node || (node.parent?.type === "property" && node === node.parent.keyNode)) {
+			return PointerType.none;
+		}
+
+		let currentNode: ASTNode | undefined = node;
+
+		while (currentNode && currentNode.type !== "property") {
+			currentNode = currentNode.parent;
+		}
+
+		if (!currentNode) {
+			return PointerType.none;
+		}
+
+		const schemas = await jsonLanguageService.getMatchingSchemas(document, jsonDocument);
+
+		for (const schema of schemas) {
+			if (!JsonAST.isWithinSchemaNode(node.offset, schema.node)) {
+				continue;
+			}
+
+			const props = schema.schema.properties;
+			if (!props) {
+				continue;
+			}
+
+			const key = currentNode.keyNode.value;
+			const schemaProp: any = props[key];
+
+			if (!("pointer" in schemaProp)) {
+				continue;
+			}
+
+			return schemaProp.pointer as PointerType;
+
+		}
+
+		return PointerType.none;
 	}
 
 
@@ -244,44 +389,20 @@ class SinsLanguageServer {
 		const jsonDocument: JSONDocument = this.jsonLanguageService.parseJSONDocument(document);
 		const offset: number = document.offsetAt(params.position);
 		const node: ASTNode | undefined = jsonDocument.getNodeFromOffset(offset);
-
-		// iterate over schema and return the property context, maybe encapsulate it later as it will be useful for completions as well.
-		const schemas: MatchingSchema[] = await this.jsonLanguageService.getMatchingSchemas(document, jsonDocument);
-
-		let isHovering: number = PointerType.none;
-
-		schemas.forEach((s) => {
-			const props = s.schema.properties;
-			if (props) {
-				Object.keys(props).forEach(key => {
-					const schemaProp: any = props[key];
-					if (node?.parent?.type === "property" && node.parent.keyNode.value === key && "pointer" in schemaProp) {
-						switch (schemaProp.pointer) {
-							case PointerType.localized_text:
-								isHovering = PointerType.localized_text;
-								break;
-							case PointerType.brushes:
-								isHovering = PointerType.brushes;
-								break;
-							default:
-								break;
-						}
-					}
-				});
-			}
-		});
+		const context: PointerType = await this.getContext(this.jsonLanguageService, document, jsonDocument, node);
+		console.log("Hover context:", PointerType[context]);
 
 		if (node && node.type === "string" && node.value) {
 			if (JsonAST.isNodeValue(node)) {
-				if (isHovering === PointerType.brushes && this.workspaceFolder) {
+				if (context === PointerType.brushes && this.workspaceFolder) {
 					const textureHover: Hover | null = await this.textureManager.getHover(node.value);
 					if (textureHover) {
 						return textureHover;
 					}
 				}
 
-				if (isHovering === PointerType.localized_text) {
-					const localizeHover: Hover | null = this.localizationManager.getHover(node.value);
+				if (context === PointerType.localized_text) {
+					const localizeHover: Hover | null = this.localizationManager.getHover(node.value, this.currentLanguageCode);
 					if (localizeHover) {
 						return localizeHover;
 					}
@@ -308,17 +429,39 @@ class SinsLanguageServer {
 		const jsonDocument: JSONDocument = this.jsonLanguageService.parseJSONDocument(document);
 		const offset: number = document.offsetAt(params.position);
 		const node: ASTNode | undefined = jsonDocument.getNodeFromOffset(offset);
+		const context: PointerType = await this.getContext(this.jsonLanguageService, document, jsonDocument, node);
 
 		if (node && node.type === 'string' && JsonAST.isNodeValue(node)) {
 			const identifier: string = node.value;
-			const paths: string[] | undefined = this.indexManager.getPaths(identifier);
+			let paths: string[] | undefined = this.indexManager.getPaths(identifier);
+			let range: Range =  Range.create({character: 0, line: 0}, {character: 0, line: 0});
 
+
+			if (context === PointerType.localized_text) {
+				// TODO: encapsulate this later...
+				paths = this.indexManager.getPaths(this.currentLanguageCode);
+
+				const localisation = this.cacheManager.getCache().localized_text;
+				if (!localisation.has(identifier) || !paths) {
+					return null;
+				}
+
+				const text = await fs.promises.readFile(paths[0], "utf-8");
+				const lines = text.split("\n");
+				for (let i = 0; i < lines.length; i++) {
+					const idx = lines[i].indexOf(`"${identifier}"`);
+					if (idx !== -1) {
+						range = Range.create({line: i, character: idx}, {line: i, character: idx + identifier.length + 2});
+						break;
+					}
+				}
+			}
 			if (paths && paths.length > 0) {
 				// Map all found paths to Locations.
 				return paths.map(filePath => {
 					const location: Location = Location.create(
 						pathToFileURL(filePath).toString(),
-						Range.create(0, 0, 0, 0) // Point to start of file
+						range // Point to start of file
 					);
 					return location;
 				});
@@ -338,20 +481,44 @@ class SinsLanguageServer {
 		const jsonDocument: JSONDocument = this.jsonLanguageService.parseJSONDocument(document);
 		const offset: number = document.offsetAt(params.position);
 		const node: ASTNode | undefined = jsonDocument.getNodeFromOffset(offset);
+		const context: PointerType = await this.getContext(this.jsonLanguageService, document, jsonDocument, node);
 
 		// TODO: Implement code completions.
 		// 1. Identify the current property node.
 		// 2. Check if that property maps to a known type.
 		// 3. Return list of CompletionItems from the relevant manager.
-		if (node && node.type === "string" && JsonAST.isNodeValue(node)) {
-			const defaultSuggestions: CompletionList | null = await this.jsonLanguageService.doComplete(document, params.position, jsonDocument);
-			return defaultSuggestions;
+
+		if (node) {
+			const range: Range = {
+				start: document.positionAt(node.offset + 1),
+				end: document.positionAt(node.offset + node.length - 1)
+			};
+			if (context === PointerType.localized_text) {
+				const localisation: CompletionList = this.completionManager.setCompletionList("localized_text", CompletionItemKind.Constant, range);
+				return localisation;
+			} else if (context === PointerType.brushes) {
+				const textures: CompletionList = this.completionManager.setCompletionList("brushes", CompletionItemKind.File, range);
+				return {
+					isIncomplete: textures.isIncomplete,
+					items: textures.items.filter(e => e.label.endsWith(".dds") || e.label.endsWith(".png")).map(e => {
+						const label = path.basename(e.label, path.extname(e.label));
+						return {
+							label: e.label,
+							kind: e.kind,
+							textEdit: { range, newText: label }
+						};
+					})
+				};
+			} else if (context === PointerType.unit_skins) {
+				const unit_skins: CompletionList = this.completionManager.setCompletionList("unit_skins", CompletionItemKind.Enum, range);
+				return unit_skins;
+			}
 		}
 
-		return {
-			isIncomplete: false,
-			items: []
-		};
+
+		const defaultSuggestions: CompletionList | null = await this.jsonLanguageService.doComplete(document, params.position, jsonDocument);
+
+		return defaultSuggestions;
 	}
 
 }
