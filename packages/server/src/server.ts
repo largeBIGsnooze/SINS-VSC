@@ -14,17 +14,20 @@ import {
     DefinitionParams,
     CompletionParams,
     CompletionList,
+    DocumentSymbolParams,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
     ASTNode,
     CompletionItemKind,
+    DocumentSymbol,
     getLanguageService,
     JSONDocument,
     LanguageService,
     LanguageSettings,
     Location,
     Range,
+    SymbolInformation,
 } from "vscode-json-languageservice";
 import { fileURLToPath, pathToFileURL } from "url";
 import { SchemaPatcher } from "./json-schema";
@@ -118,6 +121,7 @@ class SinsLanguageServer {
         this.connection.onHover(this.onHover.bind(this));
         this.connection.onDefinition(this.onDefinition.bind(this));
         this.connection.onCompletion(this.onCompletion.bind(this));
+        this.connection.onDocumentSymbol(this.onDocumentSymbol.bind(this));
 
         // Bind the document event listeners.
         this.documents.onDidOpen(this.onDidOpen.bind(this));
@@ -164,6 +168,9 @@ class SinsLanguageServer {
 
                 // Tell the client that this server supports go-to-definition.
                 definitionProvider: true,
+
+                // Tell the client that this server supports document symbols.
+                documentSymbolProvider: true,
             },
         };
 
@@ -174,6 +181,7 @@ class SinsLanguageServer {
      * Sends a data request to client.
      */
     private async sendRequest(req: string): Promise<string> {
+        // Using `sendRequest` creates client specific coupling on the agnostic server.
         return this.connection.sendRequest(req).then((a: any) => a);
     }
 
@@ -464,6 +472,24 @@ class SinsLanguageServer {
         const defaultSuggestions: CompletionList | null = await this.jsonLanguageService.doComplete(document, params.position, jsonDocument);
 
         return defaultSuggestions;
+    }
+
+    /**
+     * Called when the client requests document symbols for the outline view or breadcrumbs.
+     * @param params The parameters for the document symbol request.
+     * @returns An array of `DocumentSymbol` objects.
+     * @see [Document Symbols Request Specification](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_documentSymbol)
+     */
+    private onDocumentSymbol(params: DocumentSymbolParams): DocumentSymbol[] {
+        const document: TextDocument | undefined = this.documents.get(params.textDocument.uri);
+        if (!document) {
+            return [];
+        }
+
+        // Use the JSON language service to get symbols.
+        const jsonDocument: JSONDocument = this.jsonLanguageService.parseJSONDocument(document);
+        const jsonSymbols: DocumentSymbol[] = this.jsonLanguageService.findDocumentSymbols2(document, jsonDocument);
+        return jsonSymbols;
     }
 
     public async getContext(
